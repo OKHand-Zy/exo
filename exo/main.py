@@ -64,10 +64,8 @@ print(f"Selected inference engine: {args.inference_engine}")
 
 print_yellow_exo()
 
-# init folder for Local Model
 exo_path, local_model_config = init_exo_env()
 
-# import Local Model
 if args.add_local_model:
   model_name = args.add_local_model[0]
   inference_engine = args.add_local_model[1].lower()
@@ -98,7 +96,6 @@ if args.add_local_model:
       file.close()
     sys.exit(f"Add local model: {model_name} with inference engine: {inference_engine_name}")
 
-# Build Local Model Card
 with local_model_config.open('r') as file:
   all_model = file.read()
   model_config_list = all_model.split('\n')[:-1]
@@ -228,7 +225,6 @@ async def run_model_cli(node: Node, inference_engine: InferenceEngine, model_nam
       return
     tokenizer = await resolve_tokenizer(get_repo(shard.model_id, inference_class))
   elif os.path.isdir(model_name_or_path):
-    # local model and shard
     model_path = model_name_or_path.rstrip('/')
     model_config_path = Path(model_path)/'config.json'
     model_name = str(model_path.split('/')[-1])
