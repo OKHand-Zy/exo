@@ -1,3 +1,4 @@
+import os
 import traceback
 from aiofiles import os as aios
 from os import PathLike
@@ -7,8 +8,6 @@ from transformers import AutoTokenizer, AutoProcessor
 from exo.download.hf.hf_helpers import get_local_snapshot_dir
 from exo.helpers import DEBUG
 
-# OKHand.ziyu add library
-import os
 
 class DummyTokenizer:
   def __init__(self):
@@ -24,9 +23,9 @@ class DummyTokenizer:
 async def resolve_tokenizer(model_id: str):
   if model_id == "dummy":
     return DummyTokenizer()
-  
+
   if os.path.isdir(model_id): # local model
-    local_path = model_id.rstrip('/')
+    local_path = str(model_id).rstrip('/')
     model_id = 'Local/'+str(local_path.split('/')[-1])
   else:
     local_path = await get_local_snapshot_dir(model_id)

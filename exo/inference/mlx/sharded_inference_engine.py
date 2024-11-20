@@ -1,6 +1,8 @@
+import os
 import numpy as np
 import mlx.core as mx
 import mlx.nn as nn
+from pathlib import Path
 from ..inference_engine import InferenceEngine
 from .stateful_model import StatefulModel
 from .sharded_utils import load_shard, get_image_from_str
@@ -10,9 +12,6 @@ from exo.download.shard_download import ShardDownloader
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
-# OKHand.zy add library
-import os
-from pathlib import Path
 from exo.models import get_repo
 
 def sample_logits(
@@ -66,7 +65,7 @@ class MLXDynamicShardInferenceEngine(InferenceEngine):
   async def ensure_shard(self, shard: Shard):
     if self.shard == shard:
       return
-    
+
     if os.path.isdir(shard.model_id): # cli mode
       model_path = Path(shard.model_id) 
     elif "Local" in shard.model_id: # api mode
