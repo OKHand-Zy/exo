@@ -185,7 +185,7 @@ def preemptively_start_download(request_id: str, opaque_status: str):
       current_shard = node.get_current_shard(Shard.from_dict(status.get("shard")))
       
       if "Local" in current_shard.model_id or os.path.isdir(current_shard.model_id):
-        # TODO: open ftp to share download model 
+        # TODO: build http to share download model 
         print("Local model detected, skip download")
         pass
       else:
@@ -295,6 +295,11 @@ async def main():
       loop.add_signal_handler(s, handle_exit)
 
   await node.start(wait_for_peers=args.wait_for_peers)
+
+  from exo.download.local.local_helpers import print_node_network, check_model_config
+  # Add this task after node.start()
+  asyncio.create_task(print_node_network(node.server))
+  asyncio.create_task(check_model_config())
 
   if args.command == "run" or args.run_model:
     model_name_or_path = args.model_name or args.run_model
