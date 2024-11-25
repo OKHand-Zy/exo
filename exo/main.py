@@ -104,6 +104,11 @@ for model_config in model_config_list:
   build_local_model_card(model_name, model_path, inference_engine, int(config_n_layers))
 print(f"Init local model card complete")
 
+# Test
+from exo.download.local.local_helpers import check_local_model
+check_local_model()
+
+
 system_info = get_system_info()
 print(f"Detected system: {system_info}")
 
@@ -177,6 +182,7 @@ api = ChatGPTAPI(
 node.on_token.register("update_topology_viz").on_next(
   lambda req_id, tokens, __: topology_viz.update_prompt_output(req_id, inference_engine.tokenizer.decode(tokens)) if topology_viz and hasattr(inference_engine, "tokenizer") else None
 )
+#=============================================================================================#
 
 def preemptively_start_download(request_id: str, opaque_status: str):
   try:
@@ -196,7 +202,7 @@ def preemptively_start_download(request_id: str, opaque_status: str):
     if DEBUG >= 2:
       print(f"Failed to preemptively start download: {e}")
       traceback.print_exc()
-
+# 下載模型
 node.on_opaque_status.register("start_download").on_next(preemptively_start_download)
 
 if args.prometheus_client_port:
@@ -240,7 +246,7 @@ async def run_model_cli(node: Node, inference_engine: InferenceEngine, model_nam
       print(f"Error: Not Find Local model '{model_name}' for inference engine {inference_engine.__class__.__name__}")
       return
   else:
-    print(f"Error: Unsupported model '{model_name}' for inference engine {inference_engine.__class__.__name__}")
+    print(f"Error: Unsupported model '{model_name_or_path}' for inference engine {inference_engine.__class__.__name__}")
     return
   
   request_id = str(uuid.uuid4())
@@ -295,11 +301,6 @@ async def main():
       loop.add_signal_handler(s, handle_exit)
 
   await node.start(wait_for_peers=args.wait_for_peers)
-
-  from exo.download.local.local_helpers import print_node_network, check_model_config
-  # Add this task after node.start()
-  asyncio.create_task(print_node_network(node.server))
-  asyncio.create_task(check_model_config())
 
   if args.command == "run" or args.run_model:
     model_name_or_path = args.model_name or args.run_model
