@@ -29,7 +29,11 @@ from exo.inference.tokenizers import resolve_tokenizer
 from exo.orchestration.node import Node
 from exo.models import model_cards, build_local_model_card, build_base_shard, get_repo
 from exo.viz.topology_viz import TopologyViz
-from exo.download.hf.hf_helpers import has_hf_home_read_access, has_hf_home_write_access, get_hf_home, move_models_to_hf
+from exo.download.hf.hf_helpers import check_hf_dir_permissions, move_models_to_hf
+from exo.download.localhost.lh_helpers import check_lh_dir_permissions
+
+from exo.download.localhost.http_server import app as http_app
+from exo.download.localhost.http_helpers import start_http_servers, cleanup_http_servers
 
 # parse args
 parser = argparse.ArgumentParser(description="Initialize GRPC Discovery")
@@ -69,11 +73,11 @@ exo_path, local_model_config = init_exo_env()
 if args.add_local_model:
   model_name = args.add_local_model[0]
   inference_engine = args.add_local_model[1].lower()
-  if inference_engine == "mlx" or inference_engine == "mlxdynamicshardinferenceengine":
+  if inference_engine == "mlx":
     inference_engine_name = "MLXDynamicShardInferenceEngine"
-  elif inference_engine == "tinygrad" or inference_engine == "tinygradshardinferenceengine":
+  elif inference_engine == "tinygrad":
     inference_engine_name = "TinyGradShardInferenceEngine"
-  elif inference_engine == "dummy" or inference_engine == "dummyinferenceengine":
+  elif inference_engine == "dummy":
     inference_engine_name = "DummyInferenceEngine"
   else:
     sys.exit(f"Invalid inference engine: {inference_engine}")
@@ -104,9 +108,9 @@ for model_config in model_config_list:
   build_local_model_card(model_name, model_path, inference_engine, int(config_n_layers))
 print(f"Init local model card complete")
 
-# Test
-from exo.download.local.local_helpers import check_local_model
-check_local_model()
+# Local model check
+from exo.download.localhost.lh_helpers import check_local_model_config
+check_local_model_config()
 
 
 system_info = get_system_info()
@@ -182,7 +186,6 @@ api = ChatGPTAPI(
 node.on_token.register("update_topology_viz").on_next(
   lambda req_id, tokens, __: topology_viz.update_prompt_output(req_id, inference_engine.tokenizer.decode(tokens)) if topology_viz and hasattr(inference_engine, "tokenizer") else None
 )
-#=============================================================================================#
 
 def preemptively_start_download(request_id: str, opaque_status: str):
   try:
@@ -192,10 +195,12 @@ def preemptively_start_download(request_id: str, opaque_status: str):
       
       if "Local" in current_shard.model_id or os.path.isdir(current_shard.model_id):
         # TODO: build http to share download model 
+        # asyncio.create_task(shard_downloader.ensure_shard(current_shard, inference_engine.__class__.__name__))
         print("Local model detected, skip download")
         pass
       else:
         if DEBUG >= 2: print(f"Preemptively starting download for {current_shard}")
+        # 檢查是否有模型路徑，如果有，回傳資料夾路徑，如果沒有，則下載模型
         asyncio.create_task(shard_downloader.ensure_shard(current_shard, inference_engine.__class__.__name__))
     
   except Exception as e:
@@ -275,18 +280,17 @@ async def main():
   loop = asyncio.get_running_loop()
 
   # Check HuggingFace directory permissions
-  hf_home, has_read, has_write = get_hf_home(), await has_hf_home_read_access(), await has_hf_home_write_access()
-  if DEBUG >= 1: print(f"Model storage directory: {hf_home}")
-  print(f"{has_read=}, {has_write=}")
-  if not has_read or not has_write:
-    print(f"""
-          WARNING: Limited permissions for model storage directory: {hf_home}.
-          This may prevent model downloads from working correctly.
-          {"❌ No read access" if not has_read else ""}
-          {"❌ No write access" if not has_write else ""}
-          """)
-    
-  if not args.models_seed_dir is None:
+  await check_hf_dir_permissions()
+  await check_lh_dir_permissions()
+
+  # Http Service
+  ips = get_all_ip_addresses()
+  runners, sites = await start_http_servers(ips, http_app)
+
+  # move_models_to_hf: 
+  # 问题出在尝试从 source_dir.iterdir() 进行异步遍历。
+  # 然而，标准的 Python Path 对象（或类似的操作）实际上是一个同步迭代器，并不提供异步遍历的功能。
+  if not args.models_seed_dir is None: 
     try:
       await move_models_to_hf(args.models_seed_dir)
     except Exception as e:

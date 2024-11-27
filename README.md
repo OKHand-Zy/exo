@@ -251,6 +251,12 @@ Please stored models in `~/.cache/exo`.
 
 You can set a different model storage location by setting the `HOME` env var
 
+### Local HTTP Server API
+- List files : [http://localhost:52415/files](http://localhost:52415/files)
+- List models : [http://localhost:52415/models](http://localhost:52415/models)
+- List model files : [http://localhost:52415/models/<model_name>/files](http://localhost:52415/models/<model_name>/files) 
+
+
 ## Debugging
 
 Enable debug logs with the DEBUG environment variable (0-9).

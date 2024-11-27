@@ -20,8 +20,8 @@ import aiofiles
 from aiofiles import os as aios
 
 T = TypeVar("T")
-
-async def get_local_snapshot_dir(repo_id: str, revision: str = "main") -> Optional[Path]:
+# Ori: get_local_snapshot_dir
+async def get_local_model_dir(repo_id: str, revision: str = "main") -> Optional[Path]:
   refs_dir = get_repo_root(repo_id)/"refs"
   refs_file = refs_dir/revision
   if await aios.path.exists(refs_file):
@@ -75,49 +75,53 @@ def _add_wildcard_to_directories(pattern: str) -> str:
 
 
 def get_hf_endpoint() -> str:
-  return os.environ.get('HF_ENDPOINT', "https://huggingface.co")
+    #need http ip address 
+  return os.environ.get('HF_ENDPOINT', "http://huggingface.co")
 
 
-def get_hf_home() -> Path:
-  """Get the Hugging Face home directory."""
-  return Path(os.environ.get("HF_HOME", Path.home()/".cache"/"huggingface"))
+def get_exo_home() -> Path: # Ori: get_hf_home
+  """Get the exo home directory."""
+  exo_home_path = Path.home()/".cache"/"exo"
+  return exo_home_path
 
 
-async def get_hf_token():
-  """Retrieve the Hugging Face token from the user's HF_HOME directory."""
-  token_path = get_hf_home()/"token"
+async def get_lh_token(): # Ori: get_hf_token
+  """get Localhost user's token.
+  
   if await aios.path.exists(token_path):
     async with aiofiles.open(token_path, 'r') as f:
       return (await f.read()).strip()
+  """
   return None
 
-
 async def get_auth_headers():
-  """Get authentication headers if a token is available."""
+  """Get/Custom authentication headers if a token is available."""
   token = await get_hf_token()
   if token:
+    # custom auth header
     return {"Authorization": f"Bearer {token}"}
   return {}
 
 
-def get_repo_root(repo_id: str) -> Path:
-  """Get the root directory for a given repo ID in the Hugging Face cache."""
-  sanitized_repo_id = str(repo_id).replace("/", "--")
-  return get_hf_home()/"hub"/f"models--{sanitized_repo_id}"
+def get_repo_root(model_id: str) -> Path:
+  """Get the model directory for a given model ID."""
+  sanitized_model_id = str(model_id).split("/")[-1]
+  return get_exo_home()/f"{sanitized_repo_id}"
 
-async def move_models_to_hf(seed_dir: Union[str, Path]):
-  """Move model in resources folder of app to .cache/huggingface/hub"""
+async def move_models_to_exo(seed_dir: Union[str, Path]): # Ori: move_models_to_hf
+  """Move model in resources folder of app to .cache/exo/"""
   source_dir = Path(seed_dir)
-  dest_dir = get_hf_home()/"hub"
-  await aios.makedirs(dest_dir, exist_ok=True)
+  dest_dir = get_exo_home()
   async for path in source_dir.iterdir():
-    if path.is_dir() and path.startswith("models--"):
+    print("Start Move")
+    if path.is_dir():
       dest_path = dest_dir / path.name
       if dest_path.exists():
         if DEBUG>=1: print(f"skipping moving {dest_path}. File already exists")
       else:
         await aios.rename(str(path), str(dest_path))
-        
+  
+  print("Done Move")
 
 async def fetch_file_list(session, repo_id, revision, path=""):
   api_url = f"{get_hf_endpoint()}/api/models/{repo_id}/tree/{revision}"
@@ -429,27 +433,91 @@ def get_allow_patterns(weight_map: Dict[str, str], shard: Shard) -> List[str]:
   if DEBUG >= 2: print(f"get_allow_patterns {weight_map=} {shard=} {shard_specific_patterns=}")
   return list(default_patterns | shard_specific_patterns)
 
-async def has_hf_home_read_access() -> bool:
-  hf_home = get_hf_home()
-  try: return await aios.access(hf_home, os.R_OK)
+async def has_exo_home_read_access() -> bool: # Ori: has_hf_home_read_access
+  lh_home = get_exo_home()
+  try: return await aios.access(lh_home, os.R_OK)
   except OSError: return False
 
-async def has_hf_home_write_access() -> bool:
-  hf_home = get_hf_home()
-  try: return await aios.access(hf_home, os.W_OK)
+async def has_exo_home_write_access() -> bool: # Ori: has_hf_home_write_access
+  lh_home = get_exo_home()
+  try: return await aios.access(lh_home, os.W_OK)
   except OSError: return False
 
-async def check_hf_dir_permissions():
-  hf_home, hf_has_read, hf_has_write = get_hf_home(), await has_hf_home_read_access(), await has_hf_home_write_access()
+async def check_lh_dir_permissions():
+  lh_home, lh_has_read, lh_has_write = get_exo_home(), await has_exo_home_read_access(), await has_exo_home_write_access()
   if DEBUG >= 1: 
-    print(f"HF Model storage directory: {hf_home}")
-    print(f"{hf_has_read=}, {hf_has_write=}")
+    print(f"exo Model storage directory: {lh_home}")
+    print(f"{lh_has_read=}, {lh_has_write=}")
 
-  if not hf_has_read or not hf_has_write:
+  if not lh_has_read or not lh_has_write:
     print(f"""
-          WARNING: Limited permissions for model storage directory: {hf_home}.
+          WARNING: Limited permissions for model storage directory: {lf_home}.
           This may prevent model downloads from working correctly.
-          {"❌ No read access" if not hf_has_read else ""}
-          {"❌ No write access" if not hf_has_write else ""}
+          {"❌ No read access" if not lh_has_read else ""}
+          {"❌ No write access" if not lh_has_write else ""}
           """)
   return
+
+
+# HTTP Server Function
+def check_local_model_config() -> None:
+    """
+    Checks for the existence of a model configuration file and prints the status of each model.
+    """
+    exo_cache = Path.home() / '.cache' / 'exo'
+    config_path = exo_cache / 'model_config.txt'
+    try:
+      if not config_path.exists():
+        print("model_config.txt not found in ~/.cache/exo")
+        return
+        
+        with open(config_path, 'r') as f:
+            model_configs = f.read().splitlines()
+
+        print(f"\n=== Model Config Check ===")
+        for config in model_configs:
+            if not config:
+                continue
+            model_name = config.split(':')[0]
+            model_path = config.split(':')[-1]
+            model_dir = Path(model_path)
+            
+            if model_dir.exists():
+                print(f" {model_name}: Found at {model_path}")
+            else:
+                print(f" {model_name}: Not found at {model_path}")
+        print("=======================\n")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+async def print_node_network(server) -> None:
+    """
+    Periodically prints the network nodes information and broadcasts it to connected peers.
+    """
+    try:
+        last_network_time = 0
+        await check_model_config()  # Run initial check
+        
+        while True:
+            current_time = time.time()
+            if current_time - last_network_time >= 3.0:
+                last_network_time = current_time
+                network_info = {
+                    "type": "network_info",
+                    "current_node": {
+                        "id": server.node.id,
+                        "address": f"{server.host}:{server.port}"
+                    },
+                    "peers": [{"id": peer.id(), "address": peer.addr()} for peer in server.node.peers]
+                }
+                print("\n=== Network Nodes Information ===")
+                print(f"Current Node: {network_info['current_node']['id']} @ {network_info['current_node']['address']}")
+                print("Connected Peers:")
+                for peer in network_info['peers']:
+                    print(f"- {peer['id']} @ {peer['address']}")
+                print("================================\n")
+                await server.node.broadcast_opaque_status("", json.dumps(network_info))
+                await check_model_config()  # Run periodic check
+            await asyncio.sleep(1)
+    except Exception as e:
+        print(f"An error occurred: {e}")
