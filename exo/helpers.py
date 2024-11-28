@@ -88,19 +88,10 @@ def terminal_link(uri, label=None):
   return escape_mask.format(parameters, uri, label)
 
 def init_exo_env():
-  exo_path = Path.home()/".cache"/"exo"
+  exo_path = Path(Path.home()/".cache"/"exo")
   os.makedirs(exo_path, exist_ok=True)
-  if DEBUG>=1:
-    print(f"exo folder: {exo_path}")
-    
-  local_model_config = exo_path/"model_config.txt"
-  local_model_config.parent.mkdir(parents=True, exist_ok=True)
-  with local_model_config.open('a') as file:
-    file.close()
-  if DEBUG>=1:
-    print(f"local model config: {exo_path}")
-  
-  return exo_path, local_model_config
+  if DEBUG >= 1: print(f"Init exo folder: {exo_path}")
+  return exo_path
 
 T = TypeVar("T")
 K = TypeVar("K")

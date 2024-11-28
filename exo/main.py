@@ -62,56 +62,13 @@ parser.add_argument("--run-model", type=str, help="Specify a model to run direct
 parser.add_argument("--prompt", type=str, help="Prompt for the model when using --run-model", default="Who are you?")
 parser.add_argument("--tailscale-api-key", type=str, default=None, help="Tailscale API key")
 parser.add_argument("--tailnet-name", type=str, default=None, help="Tailnet name")
-parser.add_argument("--add-local-model", type=str, nargs=2, metavar=('Model_name', 'Inference_engine'), help="Add local model: MODEL_NAME is the name of model, ENGINE_NAME is mlx/tinygrad/dummy")
+parser.add_argument("--http-port", type=int, default=52525, help="Local HTTP Server port")
 args = parser.parse_args()
 print(f"Selected inference engine: {args.inference_engine}")
 
 print_yellow_exo()
 
-exo_path, local_model_config = init_exo_env()
-
-if args.add_local_model:
-  model_name = args.add_local_model[0]
-  inference_engine = args.add_local_model[1].lower()
-  if inference_engine == "mlx":
-    inference_engine_name = "MLXDynamicShardInferenceEngine"
-  elif inference_engine == "tinygrad":
-    inference_engine_name = "TinyGradShardInferenceEngine"
-  elif inference_engine == "dummy":
-    inference_engine_name = "DummyInferenceEngine"
-  else:
-    sys.exit(f"Invalid inference engine: {inference_engine}")
-  
-  config_file_path = Path(exo_path/model_name/'config.json')
-  with open(config_file_path, 'r') as file:
-      config = json.load(file)
-      config_n_layers = config['num_hidden_layers']
-  
-  new_model = f"{model_name}:{config_n_layers}:{inference_engine_name}:{str(exo_path)}/{model_name}\n"
-
-  with local_model_config.open('r') as file:
-      existing_content = file.read()
-      file.close()
-  if new_model in existing_content:
-      sys.exit(f"Model already: {model_name} with inference engine: {inference_engine_name}")
-  else:
-    with local_model_config.open('a') as file:
-      file.write(new_model)
-      file.close()
-    sys.exit(f"Add local model: {model_name} with inference engine: {inference_engine_name}")
-
-with local_model_config.open('r') as file:
-  all_model = file.read()
-  model_config_list = all_model.split('\n')[:-1]
-for model_config in model_config_list:
-  model_name, config_n_layers, inference_engine, model_path = model_config.split(':')
-  build_local_model_card(model_name, model_path, inference_engine, int(config_n_layers))
-print(f"Init local model card complete")
-
-# Local model check
-from exo.download.localhost.lh_helpers import check_local_model_config
-check_local_model_config()
-
+exo_path = init_exo_env()
 
 system_info = get_system_info()
 print(f"Detected system: {system_info}")
@@ -125,6 +82,17 @@ shard_downloader: ShardDownloader = HFShardDownloader(quick_check=args.download_
 inference_engine = get_inference_engine(inference_engine_name, shard_downloader)
 print(f"Using inference engine: {inference_engine.__class__.__name__} with shard downloader: {shard_downloader.__class__.__name__}")
 
+for folder_path in Path(exo_path).iterdir():
+  if folder_path.is_dir():
+    model_path = folder_path
+    model_name = folder_path.name
+    config_file_path = Path(folder_path/'config.json')
+    with open(config_file_path, 'r') as file:
+      config = json.load(file)
+      config_n_layers = config['num_hidden_layers']
+    build_local_model_card(model_name, model_path, inference_engine.__class__.__name__, int(config_n_layers))
+print(f"Init local model card complete")
+
 if args.node_port is None:
   args.node_port = find_available_port(args.node_host) 
   if DEBUG >= 1: print(f"Using available port: {args.node_port}")
@@ -136,6 +104,7 @@ if DEBUG >= 0:
   print("Chat interface started:")
   for web_chat_url in web_chat_urls:
     print(f" - {terminal_link(web_chat_url)}")
+  
   print("ChatGPT API endpoint served at:")
   for chatgpt_api_endpoint in chatgpt_api_endpoints:
     print(f" - {terminal_link(chatgpt_api_endpoint)}")
@@ -186,6 +155,12 @@ api = ChatGPTAPI(
 node.on_token.register("update_topology_viz").on_next(
   lambda req_id, tokens, __: topology_viz.update_prompt_output(req_id, inference_engine.tokenizer.decode(tokens)) if topology_viz and hasattr(inference_engine, "tokenizer") else None
 )
+
+# TODO: find http server model add model card
+'''
+build_local_model_card(model_name, model_url, inference_engine, int(config_n_layers))
+'''
+print(f"Init local model card complete")
 
 def preemptively_start_download(request_id: str, opaque_status: str):
   try:
@@ -253,7 +228,7 @@ async def run_model_cli(node: Node, inference_engine: InferenceEngine, model_nam
   else:
     print(f"Error: Unsupported model '{model_name_or_path}' for inference engine {inference_engine.__class__.__name__}")
     return
-  
+
   request_id = str(uuid.uuid4())
   callback_id = f"cli-wait-response-{request_id}"
   callback = node.on_token.register(callback_id)
@@ -285,7 +260,7 @@ async def main():
 
   # Http Service
   ips = get_all_ip_addresses()
-  runners, sites = await start_http_servers(ips, http_app)
+  runners, sites = await start_http_servers(ips, http_app, args.http_port)
 
   # move_models_to_hf: 
   # 问题出在尝试从 source_dir.iterdir() 进行异步遍历。
@@ -298,6 +273,7 @@ async def main():
 
   # Use a more direct approach to handle signals
   def handle_exit():
+    asyncio.ensure_future(cleanup_http_servers(runners, sites))
     asyncio.ensure_future(shutdown(signal.SIGTERM, loop))
 
   if platform.system() != "Windows":
