@@ -263,13 +263,16 @@ async def download_model_dir(
         await f.write(json.dumps(file_list))
       if DEBUG >= 2: print(f"Cached file list at {cached_file_list_path}")
     
-    #filtered_file_list = list(filter_repo_objects(file_list, allow_patterns=allow_patterns, ignore_patterns=ignore_patterns, key=lambda x: x["path"]))
+    filtered_file_list = list(filter_repo_objects(file_list, allow_patterns=allow_patterns, ignore_patterns=ignore_patterns, key=lambda x: x["path"]))
+    #filtered_file_list = file_list
     
-    total_files = len(file_list)
-    total_bytes = sum(file["size"] for file in file_list)
+    # 使用 filtered_file_list 會導致推理變爛
+
+    total_files = len(filtered_file_list)
+    total_bytes = sum(file["size"] for file in filtered_file_list)
     file_progress: Dict[str, RepoFileProgressEvent] = {
       file["path"]: RepoFileProgressEvent(repo_id, revision, file["path"], 0, 0, file["size"], 0, timedelta(0), "not_started")
-      for file in file_list
+      for file in filtered_file_list
     }
     start_time = datetime.now()
 
@@ -337,7 +340,7 @@ async def download_model_dir(
       async with semaphore:
         await download_with_progress(file_info, progress_state)
 
-    tasks = [asyncio.create_task(download_with_semaphore(file_info)) for file_info in file_list]
+    tasks = [asyncio.create_task(download_with_semaphore(file_info)) for file_info in filtered_file_list]
     await asyncio.gather(*tasks)
 
   return repo_root
@@ -410,4 +413,25 @@ async def has_exo_home_write_access() -> bool: # Ori: has_hf_home_write_access
   except OSError: return False
 
 async def downlaod_tokenizer_config(repo_id: str):
-  await download_model_dir(repo_id=repo_id, allow_patterns="tokenizer_config.json")
+  model_file_json = await get_stored_model_file_list(repo_id)
+  model_files = model_file_json['items']
+  allow_files = []
+  for item in model_files:
+    if item["type"] == "file" and item["name"].endswith(".json"):
+      allow_files.append(item["name"])
+  print(f'allow_files: {allow_files}')
+  await download_model_dir(repo_id=repo_id, allow_patterns=allow_files)
+
+async def get_stored_model_file_list(repo_id: str) -> List[str]:
+  model_name = str(repo_id).split("/")[-1]
+  url = f"{get_lh_endpoint()}/models/{model_name}/list"
+  try:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            if response.status == 200:
+              return await response.json()
+            else:
+              return None
+  except Exception as e:
+    print(f"Error getting models from store: {e}")
+    return None 
